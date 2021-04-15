@@ -1,0 +1,12 @@
+I Love China    1
+I Love Beijing  1
+I Love ShangHai 1
+I Love You  1
+I Love Python   1
+I Love this world   1
+I hate China    0
+I hate Beijing  0
+I hate ShangHai 0
+I hate You  0
+I hate Python   0
+I hate this world   0
