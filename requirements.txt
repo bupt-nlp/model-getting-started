@@ -1,3 +1,4 @@
 typed-argument-parser
 torch
 transformers
+loguru
