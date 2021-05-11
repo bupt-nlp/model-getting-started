@@ -16,135 +16,29 @@
 
 from __future__ import annotations, absolute_import
 
-import collections
-import csv
 import os
-from typing import Dict
+from typing import Dict, List
 
-from tap import Tap
+
 from transformers import (
     AutoTokenizer, BertTokenizer, 
     BertForSequenceClassification, BertConfig,
-    Trainer, TrainingArguments
+    Trainer, TrainingArguments,
+    PreTrainedTokenizer
 )
+from transformers.configuration_utils import PretrainedConfig
 
-from torch.utils.data import (
-    Dataset, DataLoader
+from src.schema import (
+    InputExample, InputFeatures, Config
+)
+from src.data_process import (
+    AgNewsDataProcessor
 )
 
 from config import create_logger
 
 logger = create_logger()
 
-class Config(Tap):
-    data_dir: str  # The input data dir. Should contain the .tsv files (or other data files) for the task.
-    task_name: str
-    vocab_file: str
-    output_dir: str
-
-    pretrained_model_name: str = ''  # the pretrained model name
-    do_lower_case: bool  # do lower case
-    max_seq_length: int  # max sequence length
-    do_train: bool
-    do_eval: bool
-    do_predict: bool
-    train_batch_size: int = 32
-    eval_batch_size: int = 8
-    predict_batch_size: int = 8
-    learning_rate: float = 5e-5
-    epochs = 8
-    warmup_proportion: float = 0.1
-    save_checkpoints_steps: int = 100
-    language: str = 'zh'
-
-    num_labels: int = 2
-
-
-class GlobalData:
-    def __init__(self):
-        self.label2id: Dict[str, int] = {}
-        self.id2label: Dict[int, str] = {}
-
-global_data = GlobalData()
-
-
-config: Config = Config.parse_args(known_only=True)
-
-
-class InputExample(object):
-    """A single training/test example for simple sequence classification."""
-
-    def __init__(self, guid, text_a, text_b=None, label=None):
-        """Constructs a InputExample.
-
-    Args:
-      guid: Unique id for the example.
-      text_a: string. The untokenized text of the first sequence. For single
-        sequence tasks, only this sequence must be specified.
-      text_b: (Optional) string. The untokenized text of the second sequence.
-        Only must be specified for sequence pair tasks.
-      label: (Optional) string. The label of the example. This should be
-        specified for train and dev examples, but not for test examples.
-    """
-        self.guid = guid
-        self.text_a = text_a
-        self.text_b = text_b
-        self.label = label
-
-    def __str__(self) -> str:
-        des = f"InputExample: ID<{self.guid}> Label<{self.label}> Text-A<{self.text_a}>"
-        if self.text_b:
-            des += f" Text-B{self.text_b}"
-        return des
-
-
-class InputFeatures(object):
-    """A single set of features of data."""
-
-    def __init__(self,
-                 input_ids,
-                 attention_mask,
-                 segment_ids,
-                 label_id,
-                 is_real_example=True):
-        self.input_ids = input_ids
-        self.attention_mask = attention_mask
-        self.segment_ids = segment_ids
-        self.label_id = label_id
-        self.is_real_example = is_real_example
-    
-    def __str__(self) -> str:
-        return f"input_ids<{self.input_ids}>\nattention_mask<{self.attention_mask}>\nsegment_ids<{self.segment_ids}>\nlabel_id<{self.label_id}>"
-
-
-class DataProcessor(object):
-    """Base class for data converters for sequence classification data sets."""
-
-    def get_train_examples(self, data_dir):
-        """Gets a collection of `InputExample`s for the train set."""
-        raise NotImplementedError()
-
-    def get_dev_examples(self, data_dir):
-        """Gets a collection of `InputExample`s for the dev set."""
-        raise NotImplementedError()
-
-    def get_test_examples(self, data_dir):
-        """Gets a collection of `InputExample`s for prediction."""
-        raise NotImplementedError()
-
-    def get_labels(self):
-        """Gets the list of labels for this data set."""
-        raise NotImplementedError()
-
-    @classmethod
-    def _read_tsv(cls, input_file, quotechar=None):
-        """Reads a tab separated value file."""
-        with open(input_file, "r") as f:
-            reader = csv.reader(f, delimiter="\t", quotechar=quotechar)
-            lines = []
-            for line in reader:
-                lines.append(line)
-            return lines
 
 
 def convert_single_example(
@@ -185,25 +79,33 @@ def convert_single_example(
     return input_feature
 
 
-def create_model(config: Config):
-    """Creates a classification model."""
+def create_bert_for_sequence_classification_model(config: Config):
     bert_config: BertConfig = BertConfig.from_pretrained(config.pretrained_model_name)
     bert_config.num_labels = config.num_labels
     model = BertForSequenceClassification(bert_config)
     return model
 
-def convert_examples_to_features(examples, label_list, max_seq_length,
-                                 tokenizer):
+def create_model(config: Config):
+    """Creates a classification model."""
+    models = {
+        "bert-for-sequence-classification": create_bert_for_sequence_classification_model,
+    }
+    return models[config.model_name](config)
+
+def convert_examples_to_features(
+        examples, label_list: List[str], 
+        max_seq_length: int, tokenizer: PreTrainedTokenizer
+    ):
     """Convert a set of `InputExample`s to a list of `InputFeatures`."""
 
+    label2id = {label: index for index, label in enumerate(label_list)}
     features = []
     for (ex_index, example) in enumerate(examples):
         if ex_index % 200 == 0:
             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
 
-        feature = convert_single_example(ex_index, example, label_list,
+        feature = convert_single_example(ex_index, example, label2id,
                                          max_seq_length, tokenizer)
-
         features.append(feature)
     return features
 
@@ -219,13 +121,16 @@ def main():
 
     # processors need to be updated
     processors = {
+        'agnews-processor': AgNewsDataProcessor,
     }
+
+    config: Config = Config.instance()
 
     if not config.do_train and not config.do_eval and not config.do_predict:
         raise ValueError(
             "At least one of `do_train`, `do_eval` or `do_predict' must be True.")
-    bert_config = BertConfig.from_pretrained(config.pretrained_model_name)
 
+    bert_config = PretrainedConfig.from_pretrained(config.pretrained_model_name)
     # 根据不同的任务，处理不同的数据集
     task_name = config.task_name.lower()
     if task_name not in processors:
@@ -242,7 +147,7 @@ def main():
 
     if config.do_train:
 
-        train_examples = processor.get_train_examples(config.data_dir)s
+        train_examples: List[InputExample] = processor.get_train_examples(config.data_dir)
         train_dataset_loader = 
         num_train_steps = int(
             len(train_examples) / config.train_batch_size * config.epochs
