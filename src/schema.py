@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from dataclasses import dataclass
+
+import torch
 from dataclasses_json import dataclass_json
 import numpy as np
 from tap import Tap
@@ -18,37 +20,85 @@ from sklearn.metrics import (
 
 class Config(Tap):
     data_dir: str  # The input data dir. Should contain the .tsv files (or other data files) for the task.
-    task_name: str
-    model_name: str = 'bert-for-sequence-classification'
+    task_name: str = 'Sequence-Classification'
+    model_name: str = 'bilstm-for-sequence-classification'
     vocab_file: str
-    output_dir: str
+    output_dir: str  # save model and result
+    log_dir: str  # save log
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    # device = torch.device('cpu')
 
-    pretrained_model_name: str = ''  # the pretrained model name
+    pretrained_path: str
+    pretrained_model_name: str = 'random'  # the pretrained model name
+    pretrained_model = None  # pretrained model or matrix
+    n_vocab: int  # the size of vocab, set value in running
+    embedding_dim: int  # the dim of embedding vector
+    hidden_size: int  # hidden size for lstm
+    num_layers: int = 2# num of lstm layer
+    num_labels: int = 2  # The default is a 2-classes model
+    dropout: int = 0.5
+
     do_lower_case: bool  # do lower case
     max_seq_length: int  # max sequence length
     do_train: bool
     do_eval: bool
     do_predict: bool
-    train_batch_size: int = 32
-    eval_batch_size: int = 8
+
+    train_batch_size: int = 128
+    eval_batch_size: int = 64
     predict_batch_size: int = 8
-    learning_rate: float = 5e-5
+
+    learning_rate: float = 1e-3
     epochs = 8
+    require_improve = 1000
     warmup_proportion: float = 0.1
     save_checkpoints_steps: int = 100
     language: str = 'zh'
 
-    num_labels: int = 2
-
 
     @staticmethod
-    def instance(cls) -> Config: 
+    def instance(cls) -> Config:
         """use single instance pattern for configuration
 
         Returns:
             Config: the Instance of Configuration
         """
         return ConfigInstanceCache.instance()
+
+
+# class Config(Tap):
+#     data_dir: str  # The input data dir. Should contain the .tsv files (or other data files) for the task.
+#     task_name: str = 'Sequence-Classification'
+#     model_name: str = 'bilstm-for-sequence-classification'
+#     vocab_file: str
+#     output_dir: str
+#
+#     pretrained_model_name: str = ''  # the pretrained model name
+#     do_lower_case: bool  # do lower case
+#     max_seq_length: int  # max sequence length
+#     do_train: bool
+#     do_eval: bool
+#     do_predict: bool
+#     train_batch_size: int = 32
+#     eval_batch_size: int = 8
+#     predict_batch_size: int = 8
+#     learning_rate: float = 5e-5
+#     epochs = 8
+#     warmup_proportion: float = 0.1
+#     save_checkpoints_steps: int = 100
+#     language: str = 'zh'
+#
+#     num_labels: int = 2
+#
+#
+#     @staticmethod
+#     def instance(cls) -> Config:
+#         """use single instance pattern for configuration
+#
+#         Returns:
+#             Config: the Instance of Configuration
+#         """
+#         return ConfigInstanceCache.instance()
 
 class ConfigInstanceCache:
     _instance = None
@@ -60,10 +110,12 @@ class ConfigInstanceCache:
         cls._instance = Config.parse_args(known_only=True)
         return cls._instance
 
+
 class GlobalData:
     def __init__(self):
         self.label2id: Dict[str, int] = {}
         self.id2label: Dict[int, str] = {}
+
 
 global_data = GlobalData()
 
@@ -109,9 +161,13 @@ class InputFeatures(object):
         self.segment_ids = segment_ids
         self.label_id = label_id
         self.is_real_example = is_real_example
+
+    def get_feature_from_example(self, examples: InputExample) -> None:
+        pass
     
     def __str__(self) -> str:
         return f"input_ids<{self.input_ids}>\nattention_mask<{self.attention_mask}>\nsegment_ids<{self.segment_ids}>\nlabel_id<{self.label_id}>"
+
 
 @dataclass_json
 @dataclass
@@ -154,6 +210,6 @@ class MetricsReport:
             recall=recall_score(truth, predicted),
             precision=precision_score(truth, predicted),
             f1_score=f1_score(truth, predicted),
-            confusion_matrix = confusion_matrix(truth, predicted, labels=[0, 1])
+            confusion_matrix=confusion_matrix(truth, predicted, labels=[0, 1])
         )
 
