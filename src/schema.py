@@ -54,6 +54,7 @@ class Config(Tap):
     warmup_proportion: float = 0.1
     save_checkpoints_steps: int = 100
     language: str = 'zh'
+    class_list = []
 
 
     @staticmethod

@@ -14,7 +14,6 @@ from src.models.base_model import SequenceClassificationModel, BiLSTMSequenceCla
 from src.schema import Config
 from src.utils import get_time_dif
 
-
 def create_model_config() -> Config:
     config = Config()
     # set data path, contains: train and test file
@@ -46,6 +45,11 @@ def create_model_config() -> Config:
     config.num_labels = 10
     config.max_seq_length = 40
     config.num_epochs = 8
+    config.class_list = []
+    with open(os.path.join(config.datadir, 'class.txt')) as  f:
+        lines = f.readlines()
+        for line in lines:
+            config.class_list.append(line.strip())
     return config
 
 
@@ -56,34 +60,38 @@ def create_sequence_classification_model(config: Config) -> SequenceClassificati
 
 
 def train(config, model, train_iterator, dev_iterator, test_iterator):
-    model.train()
+    # record start running time
     start_time = time.time()
     dev_best_loss: float = float('inf')
+    # last batch number which improves the result
     last_improve: float = 0
     optimizer = torch.optim.Adam(model.parameters(),
                                  lr=config.learning_rate)
+    # num of training batches
     batches: int = 0
+    # if early stop is True, stop training
     early_stop = False
 
     for epoch in range(config.epochs):
         print('Epoch [{}/{}]'.format(epoch + 1, config.num_epochs))
-        for (train_x, train_y) in train_iterator.get_batch(
-                batch_size=config.train_batch_size):
+        for (train_x, train_y) in train_iterator.get_batch():
+            # set model to train model
             model.train()
+            # transform data to current device
             train_x = train_x.to(config.device)
             train_y = train_y.to(config.device)
-
             output = model(train_x)
             model.zero_grad()
+            # TODO: Implement a universial loss function to fit different task
             loss = F.cross_entropy(output, train_y.view(-1))
             loss.backward()
             optimizer.step()
 
-            if batches % 100 == 0:
+            if batches % config.save_checkpoints_steps == 0:
                 true = train_y.data.cpu()
-                predic = torch.max(output.data, 1)[1].cpu()
-                train_acc = metrics.accuracy_score(true, predic)
-                dev_acc, dev_loss = eval(model, dev_iterator, config)
+                predict = torch.max(output.data, 1)[1].cpu()
+                train_acc = metrics.accuracy_score(true, predict)
+                dev_acc, dev_loss = eval(model, dev_iterator, config, do_test=False)
                 if dev_loss < dev_best_loss:
                     dev_best_loss = dev_loss
                     t = datetime.datetime.now()
@@ -105,6 +113,7 @@ def train(config, model, train_iterator, dev_iterator, test_iterator):
             batches += 1
             if early_stop:
                 break
+    test(model, test_iterator, config, model_file=state_path)
 
 
 def eval(model: SequenceClassificationModel,
@@ -116,25 +125,46 @@ def eval(model: SequenceClassificationModel,
     predict_all = np.array([], dtype=int)
     labels_all = np.array([], dtype=int)
     num_batches: int = 0
+    # evaluating model, don't update parameters
     with torch.no_grad():
-        for texts, labels in dev_iterator.get_batch(config.eval_batch_size):
+        for texts, labels in dev_iterator.get_batch():
             texts = texts.to(config.device)
             labels = labels.to(config.device)
             outputs = model(texts)
+            # TODO: Implement a universal loss function to replace the code
             loss = F.cross_entropy(outputs, labels.view(-1))
             loss_total += loss
             labels = labels.data.cpu().numpy()
-            predic = torch.max(outputs.data, 1)[1].cpu().numpy()
+            predict = torch.max(outputs.data, 1)[1].cpu().numpy()
             labels_all = np.append(labels_all, labels)
-            predict_all = np.append(predict_all, predic)
+            predict_all = np.append(predict_all, predict)
             num_batches += 1
 
+    # TODO: Replace these code with Metrics Reporter
     acc = metrics.accuracy_score(labels_all, predict_all)
     if do_test:
         report = metrics.classification_report(labels_all, predict_all, target_names=config.class_list, digits=4)
         confusion = metrics.confusion_matrix(labels_all, predict_all)
         return acc, loss_total / num_batches, report, confusion
     return acc, loss_total / num_batches
+
+
+def test(model: BiLSTMSequenceClassificationModel,
+         test_iterator: DataIterator,
+         config: Config,
+         model_file='data/THCNews/save_dict/2021-5-13-0-lstm-classifer.ckpt'):
+    model.load_state_dict(torch.load(model_file))
+    model.eval()
+    start_time = time.time()
+    test_acc, test_loss, test_report, test_confusion = eval(model, test_iterator, config, do_test=True)
+    msg = "Test Loss: {0:>5.2}, Test Acc: {1:>6.2%}"
+    print(msg.format(test_loss, test_acc))
+    time_dif = get_time_dif(start_time)
+    print("Precision, Recall and F1-Score...")
+    print(test_report)
+    print("Confusion Matrix...")
+    print(test_confusion)
+    print("Time usage:", time_dif)
 
 
 if __name__ == '__main__':
@@ -147,7 +177,7 @@ if __name__ == '__main__':
 
     # 2. Load data
     print('*' * 20, 'Loading data', '*' * 20)
-    data_processor = THCNewsDataProcessor(vocab)
+    data_processor = THCNewsDataProcessor()
     root = os.path.join(os.path.abspath('.'), 'data')
     thcnews = os.path.join(root, 'THCNews')
     train_file = os.path.join(thcnews, 'train.txt')
@@ -179,3 +209,4 @@ if __name__ == '__main__':
     print(model)
     model = model.to(config.device)
     train(config, model, train_iterator, dev_iterator, test_iterator)
+    test(model, test_iterator, config)

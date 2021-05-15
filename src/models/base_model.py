@@ -42,7 +42,6 @@ class BiLSTMSequenceClassificationModel(SequenceClassificationModel):
         self._init_weights()
 
     def _init_weights(self):
-
         for name, w in self.named_parameters():
             if 'embedding' not in name:
                 if 'weight' in name:
