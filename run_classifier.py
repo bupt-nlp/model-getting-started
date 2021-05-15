@@ -18,8 +18,6 @@ from __future__ import annotations, absolute_import
 
 import os
 from typing import Dict, List
-
-
 from transformers import (
     AutoTokenizer, BertTokenizer, 
     BertForSequenceClassification, BertConfig,
@@ -27,18 +25,19 @@ from transformers import (
     PreTrainedTokenizer
 )
 from transformers.configuration_utils import PretrainedConfig
+import tensorflow as tf
+
 
 from src.schema import (
     InputExample, InputFeatures, Config
 )
 from src.data_process import (
-    AgNewsDataProcessor
+    AgNewsDataProcessor, THCNewsDataProcessor
 )
 
 from config import create_logger
 
 logger = create_logger()
-
 
 
 def convert_single_example(
@@ -49,13 +48,13 @@ def convert_single_example(
     example_index: 用于展示example中的前几例数据
     """
     parameters  = {
-        "text":example.text_a,
-        "add_special_tokens":True,
-        "padding":True,
-        "max_length":max_seq_length,
-        "return_attention_mask":True,
-        "return_token_type_ids":True,
-        "return_length":True,
+        "text": example.text_a,
+        "add_special_tokens": True,
+        "padding": True,
+        "max_length": max_seq_length,
+        "return_attention_mask": True,
+        "return_token_type_ids": True,
+        "return_length": True,
         "verbose":True
     }
     if example.text_b:
@@ -85,12 +84,14 @@ def create_bert_for_sequence_classification_model(config: Config):
     model = BertForSequenceClassification(bert_config)
     return model
 
+
 def create_model(config: Config):
     """Creates a classification model."""
     models = {
         "bert-for-sequence-classification": create_bert_for_sequence_classification_model,
     }
     return models[config.model_name](config)
+
 
 def convert_examples_to_features(
         examples, label_list: List[str], 
@@ -117,11 +118,13 @@ class SequenceClassificationTrainer(Trainer):
         outputs = model(**inputs)
         return outputs.loss
 
+
 def main():
 
     # processors need to be updated
     processors = {
         'agnews-processor': AgNewsDataProcessor,
+        'thcnews-processor': THCNewsDataProcessor
     }
 
     config: Config = Config.instance()
@@ -148,7 +151,8 @@ def main():
     if config.do_train:
 
         train_examples: List[InputExample] = processor.get_train_examples(config.data_dir)
-        train_dataset_loader = 
+        # TODO: complete the code
+        train_dataset_loader = None
         num_train_steps = int(
             len(train_examples) / config.train_batch_size * config.epochs
         )
@@ -166,16 +170,15 @@ def main():
 
     # If TPU is not available, this will fall back to normal Estimator on CPU
     # or GPUs
-    
 
     if config.do_train:
         train_file = os.path.join(config.output_dir, "train.tf_record")
-        file_based_convert_examples_to_features(
+         file_based_convert_examples_to_features(
             train_examples, label_list, config.max_seq_length, tokenizer, train_file)
-        tf.logging.info("***** Running training *****")
-        tf.logging.info("  Num examples = %d", len(train_examples))
-        tf.logging.info("  Batch size = %d", config.train_batch_size)
-        tf.logging.info("  Num steps = %d", num_train_steps)
+        # tf.logging.info("***** Running training *****")
+        # tf.logging.info("  Num examples = %d", len(train_examples))
+        # tf.logging.info("  Batch size = %d", config.train_batch_size)
+        # tf.logging.info("  Num steps = %d", num_train_steps)
         train_input_fn = file_based_input_fn_builder(
             input_file=train_file,
             seq_length=config.max_seq_length,
@@ -223,11 +226,11 @@ def main():
         result = estimator.evaluate(input_fn=eval_input_fn, steps=eval_steps)
 
         output_eval_file = os.path.join(config.output_dir, "eval_results.txt")
-        with tf.gfile.GFile(output_eval_file, "w") as writer:
-            tf.logging.info("***** Eval results *****")
-            for key in sorted(result.keys()):
-                tf.logging.info("  %s = %s", key, str(result[key]))
-                writer.write("%s = %s\n" % (key, str(result[key])))
+        # with tf.gfile.GFile(output_eval_file, "w") as writer:
+        #     tf.logging.info("***** Eval results *****")
+        #     for key in sorted(result.keys()):
+        #         tf.logging.info("  %s = %s", key, str(result[key]))
+        #         writer.write("%s = %s\n" % (key, str(result[key])))
 
     if config.do_predict:
         predict_examples = processor.get_test_examples(config.data_dir)
@@ -245,11 +248,11 @@ def main():
                                                 config.max_seq_length, tokenizer,
                                                 predict_file)
 
-        tf.logging.info("***** Running prediction*****")
-        tf.logging.info("  Num examples = %d (%d actual, %d padding)",
-                        len(predict_examples), num_actual_predict_examples,
-                        len(predict_examples) - num_actual_predict_examples)
-        tf.logging.info("  Batch size = %d", config.predict_batch_size)
+        # tf.logging.info("***** Running prediction*****")
+        # tf.logging.info("  Num examples = %d (%d actual, %d padding)",
+        #                 len(predict_examples), num_actual_predict_examples,
+        #                 len(predict_examples) - num_actual_predict_examples)
+        # tf.logging.info("  Batch size = %d", config.predict_batch_size)
 
         predict_drop_remainder = True if config.use_tpu else False
         predict_input_fn = file_based_input_fn_builder(
