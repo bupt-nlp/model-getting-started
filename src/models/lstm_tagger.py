@@ -1,0 +1,4 @@
+""" encoder: lstm
+    decoder: crf
+"""
+

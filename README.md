@@ -1,9 +1,15 @@
 # model-getting-started
 
-> In order to reduce the difficulty of getting started between different tasks, we decide to create a startup template for different modeling task.
+a startup template for different modeling task
 
-we use [Allennlp](https://github.com/allenai/allennlp) to do experiment.
+> make models easy with students.
 
-## Quick Start
+## Features
 
-- [ ] prepare your data
+* common data structure for different tasks
+
+## TODO
+
+- [ ] complete sequence classification model and train loop
+- [ ] add ATIS dataset
+- [ ] complete sequence labeling model and train loop
